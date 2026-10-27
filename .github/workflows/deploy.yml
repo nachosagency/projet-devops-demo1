@@ -1,0 +1,55 @@
+# Deploiement continu (seance 2, bonus) : quand la CI a reussi sur develop,
+# on deploie en staging ; sur main, en production, apres validation humaine.
+#
+# A configurer dans GitHub, Settings > Environments, pour "staging" ET "production" :
+#   secrets   SSH_HOST, SSH_USER, SSH_KEY (cle privee), SSH_KNOWN_HOSTS
+#   variable  DOSSIER (ex : /opt/taskmanager/staging)
+# Sur "production", cocher "Required reviewers" : le deploiement attend un feu vert.
+
+name: Déploiement
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+jobs:
+  deployer:
+    name: Déployer
+    # Seulement si la CI est verte.
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: >-
+      ${{ github.event.workflow_run.head_branch == 'main'
+          && 'production' || 'staging' }}
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha }}
+      DOSSIER: ${{ vars.DOSSIER }}
+      CIBLE: ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
+    steps:
+      # La version exacte qui vient de passer la CI.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Clé SSH du serveur
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploiement
+          chmod 600 ~/.ssh/id_deploiement
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Copie de la configuration versionnée
+        run: scp -i ~/.ssh/id_deploiement docker-compose.prod.yml deploy.sh "$CIBLE:$DOSSIER/"
+
+      - name: Déploiement de la version
+        run: |
+          ssh -i ~/.ssh/id_deploiement "$CIBLE" \
+            "cd '$DOSSIER' && bash deploy.sh sha-${SHA::7}"
