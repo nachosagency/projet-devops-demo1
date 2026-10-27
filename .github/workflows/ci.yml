@@ -1,0 +1,99 @@
+# Integration continue : a chaque push et a chaque pull request.
+# Qualite du code, tests, puis fabrication et publication des images (le livrable).
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+# Par defaut, le workflow ne peut que lire le depot.
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------- Qualite
+  qualite:
+    name: Qualité du code
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Lint (ESLint)
+        run: npm run lint
+      - name: Typage (TypeScript)
+        run: npx tsc --noEmit
+
+  # ---------------------------------------------------------------- Tests
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    # Une vraie base MySQL, lancee par GitHub pour la duree du job.
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: taskmanager
+          MYSQL_ROOT_PASSWORD: ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci"
+          --health-interval=5s
+          --health-retries=20
+    env:
+      DATABASE_URL: mysql://root:ci@127.0.0.1:3306/taskmanager
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      - run: npm ci
+      - name: Migrations de la base de test
+        run: npx prisma migrate deploy
+      - name: Tests unitaires et d'intégration
+        run: npm test -- --coverage
+
+      # Le rapport de couverture est garde, meme si les tests echouent.
+      - name: Rapport de couverture
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: couverture
+          path: api/coverage/
+
+  # ---------------------------------------------------------------- Front
+  front:
+    name: Build du front
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: front
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: front/package-lock.json
+      - run: npm ci
+      - run: npm run build
