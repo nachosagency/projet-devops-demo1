@@ -7,6 +7,8 @@ on:
   push:
     branches: [main, develop]
   pull_request:
+  # Et a la main, bouton « Run workflow » dans l'onglet Actions : pratique en demo.
+  workflow_dispatch:
 
 # Par defaut, le workflow ne peut que lire le depot.
 permissions:
