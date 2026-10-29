@@ -10,6 +10,8 @@ export function createApp(prisma: PrismaClient) {
   app.use(cors());
   app.use(express.json());
 
+  const inutile = 42;
+
   // Sonde de sante : le deploiement et Docker l'appellent pour savoir si
   // l'API repond ET si elle joint sa base.
   app.get('/health', async (_req, res) => {
